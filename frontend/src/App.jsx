@@ -129,6 +129,7 @@ export default function App() {
   const [contactEmail, setContactEmail] = useState("");
   const [context, setContext] = useState("");
 
+  const [provider, setProvider] = useState("ollama");
   const [draftSubject, setDraftSubject] = useState("");
   const [draftBody, setDraftBody] = useState("");
   const [drafting, setDrafting] = useState(false);
@@ -172,7 +173,8 @@ export default function App() {
           context,
           lines,
           monthly,
-          annual
+          annual,
+          provider
         })
       });
       const data = await res.json();
@@ -180,7 +182,7 @@ export default function App() {
       setDraftSubject(data.subject || `Your SwyfTech IT quote for ${businessName}`);
       setDraftBody(data.body || "");
     } catch (err) {
-      setDraftError(err.message || "Could not reach Ollama.");
+      setDraftError(err.message || "Could not reach the AI provider.");
     } finally {
       setDrafting(false);
     }
@@ -304,6 +306,36 @@ export default function App() {
           />
         </div>
 
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
+            AI provider
+          </label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[
+              { id: "ollama", label: "Ollama (self-hosted)" },
+              { id: "gemini", label: "Google Gemini" }
+            ].map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setProvider(p.id)}
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 8,
+                  border: `1px solid ${provider === p.id ? BLUE : BORDER}`,
+                  background: provider === p.id ? BLUE : "#fff",
+                  color: provider === p.id ? "#fff" : TEXT,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: "pointer"
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <button
           onClick={handleDraft}
           disabled={drafting}
@@ -325,7 +357,7 @@ export default function App() {
           }}
         >
           {drafting ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
-          {drafting ? "Drafting with Ollama..." : "Draft email with AI"}
+          {drafting ? `Drafting with ${provider === "gemini" ? "Gemini" : "Ollama"}...` : "Draft email with AI"}
         </button>
 
         {draftError && (

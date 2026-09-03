@@ -15,6 +15,11 @@ services:
       OLLAMA_BASE_URL: "http://ollama:11434"
       OLLAMA_MODEL: "llama3.1"
 
+      # Optional: Google Gemini as an alternative AI provider for the quote
+      # summary draft. Get a key at https://aistudio.google.com/apikey
+      GEMINI_API_KEY: ""
+      GEMINI_MODEL: "gemini-2.5-flash"
+
       # SMTP relay used to send quote emails to clients.
       SMTP_HOST: "smtp.example.com"
       SMTP_PORT: "587"

@@ -10,6 +10,9 @@ const PORT = process.env.PORT || 8787;
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1";
 
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
 const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_SECURE = String(process.env.SMTP_SECURE || "false") === "true";
@@ -56,40 +59,77 @@ function parseDraft(raw) {
   return { subject, body };
 }
 
+async function draftWithOllama(system, user) {
+  const ollamaRes = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      stream: false,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ]
+    })
+  });
+
+  if (!ollamaRes.ok) {
+    const errText = await ollamaRes.text().catch(() => "");
+    throw new Error(`Ollama returned an error (${ollamaRes.status}). ${errText}`.trim());
+  }
+
+  const data = await ollamaRes.json();
+  return data?.message?.content || data?.response || "";
+}
+
+async function draftWithGemini(system, user) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini is not configured. Set GEMINI_API_KEY.");
+  }
+
+  const geminiRes = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: user }] }]
+      })
+    }
+  );
+
+  if (!geminiRes.ok) {
+    const errText = await geminiRes.text().catch(() => "");
+    throw new Error(`Gemini returned an error (${geminiRes.status}). ${errText}`.trim());
+  }
+
+  const data = await geminiRes.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  return parts.map((p) => p.text || "").join("");
+}
+
+const PROVIDERS = {
+  ollama: { label: "Ollama", draft: draftWithOllama },
+  gemini: { label: "Gemini", draft: draftWithGemini }
+};
+
 app.post("/api/quote-summary", async (req, res) => {
-  const { businessName, contactName, contactEmail, context, lines, monthly, annual } = req.body || {};
+  const { businessName, contactName, contactEmail, context, lines, monthly, annual, provider } = req.body || {};
 
   if (!businessName || !Array.isArray(lines) || lines.length === 0) {
     return res.status(400).json({ error: "Missing business name or quote line items." });
   }
 
+  const selected = PROVIDERS[provider] || PROVIDERS.ollama;
   const { system, user } = buildPrompt({ businessName, contactName, contactEmail, context, lines, monthly, annual });
 
   try {
-    const ollamaRes = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        stream: false,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user }
-        ]
-      })
-    });
-
-    if (!ollamaRes.ok) {
-      const errText = await ollamaRes.text().catch(() => "");
-      return res.status(502).json({ error: `Ollama returned an error (${ollamaRes.status}). ${errText}`.trim() });
-    }
-
-    const data = await ollamaRes.json();
-    const raw = data?.message?.content || data?.response || "";
+    const raw = await selected.draft(system, user);
     const { subject, body } = parseDraft(raw);
 
     if (!body) {
-      return res.status(502).json({ error: "Ollama returned an empty response." });
+      return res.status(502).json({ error: `${selected.label} returned an empty response.` });
     }
 
     res.json({
@@ -97,7 +137,7 @@ app.post("/api/quote-summary", async (req, res) => {
       body
     });
   } catch (err) {
-    res.status(502).json({ error: `Could not reach Ollama at ${OLLAMA_BASE_URL}. ${err.message || ""}`.trim() });
+    res.status(502).json({ error: err.message || `Could not reach ${selected.label}.` });
   }
 });
 
@@ -134,7 +174,14 @@ app.post("/api/send-email", async (req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, ollama: OLLAMA_BASE_URL, model: OLLAMA_MODEL, smtpConfigured: Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS) });
+  res.json({
+    ok: true,
+    ollama: OLLAMA_BASE_URL,
+    model: OLLAMA_MODEL,
+    geminiConfigured: Boolean(GEMINI_API_KEY),
+    geminiModel: GEMINI_MODEL,
+    smtpConfigured: Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS)
+  });
 });
 
 app.use(express.static(DIST_DIR));
@@ -145,5 +192,6 @@ app.get("*", (_req, res) => {
 app.listen(PORT, () => {
   console.log(`SwyfTech quote app listening on port ${PORT}`);
   console.log(`Ollama base URL: ${OLLAMA_BASE_URL} (model: ${OLLAMA_MODEL})`);
+  console.log(`Gemini configured: ${Boolean(GEMINI_API_KEY)} (model: ${GEMINI_MODEL})`);
   console.log(`SMTP configured: ${Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS)}`);
 });
