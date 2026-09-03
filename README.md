@@ -1,18 +1,23 @@
 # SwyfTech Quote App
 
 The pricing worksheet, plus a section that drafts a client quote email using
-either your self-hosted Ollama instance or Google Gemini, and sends it over
-SMTP.
+either your self-hosted Ollama instance or Google Gemini and sends it over
+SMTP, and a section that summarizes a completed Network & Security
+Assessment PDF using the same AI providers.
 
 ## What's inside
 
 - `frontend/` — the React pricing worksheet (Vite). Pick Ollama or Gemini
-  with a toggle right above the "Draft email with AI" button.
+  with a toggle above each AI action.
 - `server/` — a small Express server that:
   - serves the built frontend
   - `POST /api/quote-summary` — sends your quote numbers to the chosen AI
     provider (`provider: "ollama" | "gemini"` in the request body) and gets
     back a drafted subject + body
+  - `POST /api/summarize-assessment` — accepts a filled-out assessment PDF
+    (`multipart/form-data`, fields `file` + `provider`), extracts its form
+    field values (or plain text if it isn't an interactive PDF form), and
+    returns an AI-written summary of top risks and recommended next steps
   - `POST /api/send-email` — sends that (editable) draft to the client over
     SMTP
   - `GET /api/health` — quick check that Ollama/Gemini/SMTP env vars are set
@@ -103,7 +108,13 @@ docker run -p 8787:8787 \
   read the draft before sending, same as you would with anything AI-drafted
   going to a client.
 - Gemini calls go out over the internet to Google's API; Ollama stays fully
-  self-hosted. Pick whichever fits your client's data-handling comfort level.
+  self-hosted. Pick whichever fits your client's data-handling comfort level
+  — this applies to the assessment summary too, since the extracted PDF
+  content is sent to whichever provider you pick.
+- Assessment PDF uploads are capped at 15MB and processed in memory only
+  (never written to disk). If the PDF is a scanned image rather than a
+  fillable/text-based form, extraction will fail — export a text-based or
+  form-fillable PDF instead.
 - `SMTP_PASS` sits in plain text in the Portainer stack's environment
   variables like any other stack secret. If you'd rather not do that, swap
   it for a Docker secret or an app-specific password from your mail
