@@ -1,7 +1,10 @@
 import express from "express";
+import multer from "multer";
 import nodemailer from "nodemailer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { PDFDocument, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFTextField } from "pdf-lib";
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "dist");
@@ -23,6 +26,14 @@ const MAIL_BCC = process.env.MAIL_BCC || "";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    cb(null, file.mimetype === "application/pdf");
+  }
+});
 
 function buildPrompt({ businessName, contactName, contactEmail, context, lines, monthly, annual }) {
   const breakdown = lines
@@ -141,6 +152,82 @@ app.post("/api/quote-summary", async (req, res) => {
   }
 });
 
+async function extractPdfText(buffer) {
+  try {
+    const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
+    const fields = pdfDoc.getForm().getFields();
+    const lines = fields
+      .map((field) => {
+        const name = field.getName();
+        let value = "";
+        if (field instanceof PDFTextField) value = field.getText() || "";
+        else if (field instanceof PDFCheckBox) value = field.isChecked() ? "Yes" : "No";
+        else if (field instanceof PDFRadioGroup) value = field.getSelected() || "";
+        else if (field instanceof PDFDropdown) value = (field.getSelected() || []).join(", ");
+        return value.trim() ? `${name}: ${value.trim()}` : "";
+      })
+      .filter(Boolean);
+
+    if (lines.length > 0) return lines.join("\n");
+  } catch {
+    // Not an AcroForm PDF, or it failed to parse as one — fall back to plain text extraction below.
+  }
+
+  const data = await pdfParse(buffer);
+  return (data.text || "").trim();
+}
+
+function buildAssessmentSummaryPrompt(extractedText) {
+  const system = `You are an experienced MSP (managed service provider) technician summarizing a completed client network & security assessment intake form for internal use. Be direct and specific, not generic. Output plain text, no markdown. Structure your response as:
+TOP RISKS:
+<3-6 bullet points, most urgent first, each one line>
+RECOMMENDED NEXT STEPS:
+<3-6 bullet points, concrete and prioritized>
+NOTES:
+<1-3 sentences on anything else worth flagging - EOL systems, missing backups/MFA, compliance gaps, budget/timeline signals>`;
+
+  const user = `Here is the extracted content of a filled-out SwyfTech Network & Security Assessment form (field name/value pairs, or raw text if the PDF wasn't an interactive form):
+
+${extractedText}
+
+Summarize it now, following the required TOP RISKS / RECOMMENDED NEXT STEPS / NOTES format. Only use what's actually in the form - do not invent findings.`;
+
+  return { system, user };
+}
+
+app.post("/api/summarize-assessment", upload.single("file"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "Attach a PDF file to summarize." });
+  }
+
+  const selected = PROVIDERS[req.body?.provider] || PROVIDERS.ollama;
+
+  let extractedText;
+  try {
+    extractedText = await extractPdfText(req.file.buffer);
+  } catch (err) {
+    return res.status(400).json({ error: `Could not read that PDF. ${err.message || ""}`.trim() });
+  }
+
+  if (!extractedText || extractedText.length < 20) {
+    return res.status(400).json({
+      error: "Couldn't find readable text in this PDF. If it's a scanned image, export a text-based or form-fillable PDF instead."
+    });
+  }
+
+  const { system, user } = buildAssessmentSummaryPrompt(extractedText);
+
+  try {
+    const summary = (await selected.draft(system, user)).trim();
+    if (!summary) {
+      return res.status(502).json({ error: `${selected.label} returned an empty response.` });
+    }
+    res.json({ summary });
+  } catch (err) {
+    res.status(502).json({ error: err.message || `Could not reach ${selected.label}.` });
+  }
+});
+
 app.post("/api/send-email", async (req, res) => {
   const { to, subject, body } = req.body || {};
 
@@ -182,6 +269,13 @@ app.get("/api/health", (_req, res) => {
     geminiModel: GEMINI_MODEL,
     smtpConfigured: Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS)
   });
+});
+
+app.use((err, _req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: `Upload failed: ${err.message}` });
+  }
+  next(err);
 });
 
 app.use(express.static(DIST_DIR));
