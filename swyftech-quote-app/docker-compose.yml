@@ -1,0 +1,35 @@
+services:
+  swyftech-quote-app:
+    build: .
+    image: swyftech-quote-app:latest
+    container_name: swyftech-quote-app
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      PORT: "8787"
+
+      # Point this at your existing Ollama/Open WebUI instance on Unraid.
+      # If Ollama is on the host (not this same Docker network), use the
+      # Unraid box's LAN IP, e.g. http://10.0.20.5:11434
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      OLLAMA_MODEL: "llama3.1"
+
+      # SMTP relay used to send quote emails to clients.
+      SMTP_HOST: "smtp.example.com"
+      SMTP_PORT: "587"
+      SMTP_SECURE: "false"
+      SMTP_USER: "quotes@swyftech.example"
+      SMTP_PASS: "changeme"
+      MAIL_FROM: "SwyfTech LLC <quotes@swyftech.example>"
+      # Optional: send yourself a copy of every quote email sent.
+      MAIL_BCC: "jacob@swyftech.example"
+    # If Ollama runs in another Docker Compose project/network on the same
+    # host, either put both on a shared external network, or just use the
+    # host's LAN IP in OLLAMA_BASE_URL above instead of a service name.
+    # networks:
+    #   - wolfden
+
+# networks:
+#   wolfden:
+#     external: true
