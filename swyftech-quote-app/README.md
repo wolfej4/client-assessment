@@ -1,0 +1,102 @@
+# SwyfTech Quote App
+
+The pricing worksheet, plus a section that drafts a client quote email using
+your self-hosted Ollama instance and sends it over SMTP.
+
+## What's inside
+
+- `frontend/` — the React pricing worksheet (Vite)
+- `server/` — a small Express server that:
+  - serves the built frontend
+  - `POST /api/quote-summary` — sends your quote numbers to Ollama and gets
+    back a drafted subject + body
+  - `POST /api/send-email` — sends that (editable) draft to the client over
+    SMTP
+  - `GET /api/health` — quick check that Ollama/SMTP env vars are set
+- `Dockerfile` — multi-stage build (Vite build → slim Node runtime)
+- `docker-compose.yml` — ready to paste into a Portainer stack
+
+Nothing gets emailed automatically. The AI draft always lands in an editable
+text box first — you review or tweak it, then hit "Send email" yourself.
+
+## Deploying in Portainer
+
+**Option A — Portainer builds it from a Git repo (recommended)**
+
+1. Push this folder to a repo (e.g. a new repo alongside your existing
+   `wolfej4/msp-pitch`, or a folder inside it).
+2. In Portainer: **Stacks → Add stack → Repository**, point it at the repo/
+   branch, and set the compose path to `docker-compose.yml`.
+3. Fill in the environment variables in the Portainer stack editor (see
+   below) — you don't need a `.env` file if you set them there.
+4. Deploy. Portainer will build the image from the `Dockerfile` and start it.
+
+**Option B — build locally, push to a registry, deploy from image**
+
+```bash
+docker build -t ghcr.io/wolfej4/swyftech-quote-app:latest .
+docker push ghcr.io/wolfej4/swyftech-quote-app:latest
+```
+
+Then in `docker-compose.yml`, replace `build: .` with:
+```yaml
+image: ghcr.io/wolfej4/swyftech-quote-app:latest
+```
+and deploy that stack in Portainer as usual (**Stacks → Add stack → Web
+editor**, paste the compose file).
+
+## Environment variables
+
+Set these in the Portainer stack's environment editor (or `docker-compose.yml`
+directly, or a `.env` file for local runs — see `.env.example`):
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PORT` | `8787` | Port the app listens on inside the container |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Your Ollama instance. If it's the Open WebUI/Ollama stack on the same Unraid box but a different Docker network, use the box's LAN IP (e.g. `http://10.0.20.5:11434`) rather than `localhost` |
+| `OLLAMA_MODEL` | `llama3.1` | Whichever model you've pulled in Ollama |
+| `SMTP_HOST` | — | Your SMTP relay |
+| `SMTP_PORT` | `587` | |
+| `SMTP_SECURE` | `false` | `true` for port 465 (implicit TLS) |
+| `SMTP_USER` / `SMTP_PASS` | — | SMTP credentials |
+| `MAIL_FROM` | — | e.g. `SwyfTech LLC <quotes@yourdomain.com>` |
+| `MAIL_BCC` | — | Optional — bcc yourself on every quote sent |
+
+**Networking note:** `localhost` inside the container refers to the container
+itself, not your Unraid host. If Ollama isn't on the same Docker network as
+this stack, point `OLLAMA_BASE_URL` at the host's LAN IP instead. If you'd
+rather put both on the same Docker network, add this stack to Ollama's
+network (uncomment the `networks:` block in `docker-compose.yml`) and use
+the Ollama container's service/hostname instead.
+
+## Local development (outside Docker)
+
+```bash
+npm install
+npm run dev:frontend   # Vite dev server on :5173, proxies /api to :8787
+# in a second terminal:
+OLLAMA_BASE_URL=http://localhost:11434 node server/index.js
+```
+
+## Building the production image manually
+
+```bash
+docker build -t swyftech-quote-app .
+docker run -p 8787:8787 \
+  -e OLLAMA_BASE_URL=http://10.0.20.5:11434 \
+  -e SMTP_HOST=smtp.example.com \
+  -e SMTP_USER=quotes@swyftech.example \
+  -e SMTP_PASS=changeme \
+  -e MAIL_FROM="SwyfTech LLC <quotes@swyftech.example>" \
+  swyftech-quote-app
+```
+
+## Notes
+
+- The Ollama prompt explicitly tells the model not to invent pricing or
+  services beyond what's in the worksheet — but always read the draft before
+  sending, same as you would with anything AI-drafted going to a client.
+- `SMTP_PASS` sits in plain text in the Portainer stack's environment
+  variables like any other stack secret. If you'd rather not do that, swap
+  it for a Docker secret or an app-specific password from your mail
+  provider.
