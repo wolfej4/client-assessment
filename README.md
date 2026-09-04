@@ -27,6 +27,11 @@ Assessment PDF using the same AI providers.
 Nothing gets emailed automatically. The AI draft always lands in an editable
 text box first — you review or tweak it, then hit "Send email" yourself.
 
+If you summarize an assessment PDF before drafting the quote email, that
+summary is automatically folded into the AI's context so the drafted pitch
+can reference real findings (e.g. missing MFA, EOL hardware) instead of
+staying generic.
+
 ## Deploying in Portainer
 
 **Option A — Portainer builds it from a Git repo (recommended)**

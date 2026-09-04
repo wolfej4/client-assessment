@@ -169,6 +169,9 @@ export default function App() {
     }
     setDrafting(true);
     try {
+      const combinedContext = [context.trim(), assessmentSummary.trim() && `Network & security assessment findings:\n${assessmentSummary.trim()}`]
+        .filter(Boolean)
+        .join("\n\n");
       const res = await fetch("/api/quote-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -176,7 +179,7 @@ export default function App() {
           businessName,
           contactName,
           contactEmail,
-          context,
+          context: combinedContext,
           lines,
           monthly,
           annual,
@@ -550,23 +553,9 @@ export default function App() {
               rows={10}
               style={{ width: "100%", boxSizing: "border-box", fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
             />
-            <button
-              onClick={() => setContext((prev) => (prev ? `${prev}\n\n${assessmentSummary}` : assessmentSummary))}
-              style={{
-                width: "100%",
-                marginTop: 10,
-                padding: "8px 0",
-                borderRadius: 8,
-                border: `1px solid ${BORDER}`,
-                background: "#fff",
-                color: NAVY,
-                fontSize: 12.5,
-                fontWeight: 700,
-                cursor: "pointer"
-              }}
-            >
-              Use as notes for quote email
-            </button>
+            <div style={{ marginTop: 8, fontSize: 11.5, color: GREY }}>
+              This will be included automatically when you draft the quote email with AI.
+            </div>
           </div>
         )}
       </div>
