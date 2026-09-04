@@ -152,11 +152,63 @@ app.post("/api/quote-summary", async (req, res) => {
   }
 });
 
-async function extractPdfText(buffer) {
+// Field names from the SwyfTech Network & Security Assessment PDF template's
+// AcroForm. Used to auto-fill the pricing worksheet from a completed
+// assessment. If a different PDF is uploaded, these simply won't be found
+// and the worksheet is left for the user to fill in by hand.
+const WORKSHEET_FIELD_MAP = {
+  businessName: "biz_name",
+  contactName: "contact_name",
+  contactEmail: "contact_email",
+  employees: "num_employees",
+  workstations: "num_workstations",
+  servers: "num_servers",
+  clientGoals: "client_goals",
+  budgetRange: "budget_range",
+  desiredTimeline: "desired_timeline"
+};
+
+function getTextFieldValue(form, name) {
+  try {
+    return (form.getTextField(name).getText() || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function getCheckBoxValue(form, name) {
+  try {
+    return form.getCheckBox(name).isChecked();
+  } catch {
+    return false;
+  }
+}
+
+async function extractAssessmentData(buffer) {
+  let form = null;
+  let allFields = [];
   try {
     const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
-    const fields = pdfDoc.getForm().getFields();
-    const lines = fields
+    form = pdfDoc.getForm();
+    allFields = form.getFields();
+  } catch {
+    // Not a form PDF (or failed to parse as one) — fall through to plain text extraction.
+  }
+
+  const recognizedForm = allFields.some((f) => f.getName() === "biz_name");
+
+  let worksheetFields = null;
+  if (recognizedForm) {
+    worksheetFields = {};
+    for (const [key, pdfName] of Object.entries(WORKSHEET_FIELD_MAP)) {
+      worksheetFields[key] = getTextFieldValue(form, pdfName);
+    }
+    worksheetFields.complianceApplies = getCheckBoxValue(form, "compliance_applies_yes");
+  }
+
+  let extractedText = "";
+  if (allFields.length > 0) {
+    const lines = allFields
       .map((field) => {
         const name = field.getName();
         let value = "";
@@ -167,14 +219,15 @@ async function extractPdfText(buffer) {
         return value.trim() ? `${name}: ${value.trim()}` : "";
       })
       .filter(Boolean);
-
-    if (lines.length > 0) return lines.join("\n");
-  } catch {
-    // Not an AcroForm PDF, or it failed to parse as one — fall back to plain text extraction below.
+    extractedText = lines.join("\n");
   }
 
-  const data = await pdfParse(buffer);
-  return (data.text || "").trim();
+  if (!extractedText) {
+    const data = await pdfParse(buffer);
+    extractedText = (data.text || "").trim();
+  }
+
+  return { extractedText, worksheetFields, recognizedForm };
 }
 
 function buildAssessmentSummaryPrompt(extractedText) {
@@ -202,9 +255,9 @@ app.post("/api/summarize-assessment", upload.single("file"), async (req, res) =>
 
   const selected = PROVIDERS[req.body?.provider] || PROVIDERS.ollama;
 
-  let extractedText;
+  let extractedText, worksheetFields, recognizedForm;
   try {
-    extractedText = await extractPdfText(req.file.buffer);
+    ({ extractedText, worksheetFields, recognizedForm } = await extractAssessmentData(req.file.buffer));
   } catch (err) {
     return res.status(400).json({ error: `Could not read that PDF. ${err.message || ""}`.trim() });
   }
@@ -222,7 +275,7 @@ app.post("/api/summarize-assessment", upload.single("file"), async (req, res) =>
     if (!summary) {
       return res.status(502).json({ error: `${selected.label} returned an empty response.` });
     }
-    res.json({ summary });
+    res.json({ summary, fields: worksheetFields, recognizedForm });
   } catch (err) {
     res.status(502).json({ error: err.message || `Could not reach ${selected.label}.` });
   }

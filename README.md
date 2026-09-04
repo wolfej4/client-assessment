@@ -1,9 +1,9 @@
 # SwyfTech Quote App
 
-The pricing worksheet, plus a section that drafts a client quote email using
-either your self-hosted Ollama instance or Google Gemini and sends it over
-SMTP, and a section that summarizes a completed Network & Security
-Assessment PDF using the same AI providers.
+The pricing worksheet, plus an optional first step that reads a completed
+Network & Security Assessment PDF and pre-fills the worksheet from it, and a
+section that drafts a client quote email — using either your self-hosted
+Ollama instance or Google Gemini — and sends it over SMTP.
 
 ## What's inside
 
@@ -11,13 +11,16 @@ Assessment PDF using the same AI providers.
   with a toggle above each AI action.
 - `server/` — a small Express server that:
   - serves the built frontend
+  - `POST /api/summarize-assessment` — accepts a filled-out assessment PDF
+    (`multipart/form-data`, fields `file` + `provider`). If it's the
+    SwyfTech assessment template, it reads the form field values directly
+    (business name, device counts, compliance status, etc.) for the
+    worksheet, and always returns an AI-written summary of top risks and
+    recommended next steps (falling back to plain text extraction if the
+    PDF isn't an interactive form)
   - `POST /api/quote-summary` — sends your quote numbers to the chosen AI
     provider (`provider: "ollama" | "gemini"` in the request body) and gets
     back a drafted subject + body
-  - `POST /api/summarize-assessment` — accepts a filled-out assessment PDF
-    (`multipart/form-data`, fields `file` + `provider`), extracts its form
-    field values (or plain text if it isn't an interactive PDF form), and
-    returns an AI-written summary of top risks and recommended next steps
   - `POST /api/send-email` — sends that (editable) draft to the client over
     SMTP
   - `GET /api/health` — quick check that Ollama/Gemini/SMTP env vars are set
@@ -27,10 +30,22 @@ Assessment PDF using the same AI providers.
 Nothing gets emailed automatically. The AI draft always lands in an editable
 text box first — you review or tweak it, then hit "Send email" yourself.
 
-If you summarize an assessment PDF before drafting the quote email, that
-summary is automatically folded into the AI's context so the drafted pitch
-can reference real findings (e.g. missing MFA, EOL hardware) instead of
-staying generic.
+## Typical flow
+
+1. **Attach the completed assessment PDF** (optional) and click "Analyze
+   assessment." If it's the SwyfTech template, business info, device
+   counts, and compliance status are pulled straight into the worksheet
+   below, and an AI risk summary is generated.
+2. **Review/adjust the worksheet** — devices, add-ons, and rates.
+3. **Draft the quote email with AI** — the assessment summary (if any) is
+   automatically folded into the AI's context, so the pitch can reference
+   real findings (e.g. missing MFA, EOL hardware) instead of staying
+   generic.
+4. **Review and send.**
+
+If the uploaded PDF isn't the SwyfTech template (different form, or a
+scanned/flattened PDF with no matching field names), the worksheet fields
+are left as-is — you still get the AI summary, just not the auto-fill.
 
 ## Deploying in Portainer
 
