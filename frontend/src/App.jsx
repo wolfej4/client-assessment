@@ -142,6 +142,8 @@ export default function App() {
   const [assessmentSummary, setAssessmentSummary] = useState("");
   const [summarizing, setSummarizing] = useState(false);
   const [assessmentError, setAssessmentError] = useState("");
+  const [assessmentFilled, setAssessmentFilled] = useState(false);
+  const [assessmentUnrecognized, setAssessmentUnrecognized] = useState(false);
 
   const lines = useMemo(() => {
     const items = [];
@@ -155,6 +157,58 @@ export default function App() {
 
   const monthly = lines.reduce((sum, l) => sum + l.amount, 0);
   const annual = monthly * 12;
+
+  async function handleSummarizeAssessment() {
+    setAssessmentError("");
+    setAssessmentSummary("");
+    setAssessmentFilled(false);
+    setAssessmentUnrecognized(false);
+    if (!assessmentFile) {
+      setAssessmentError("Choose a filled-out assessment PDF first.");
+      return;
+    }
+    setSummarizing(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", assessmentFile);
+      formData.append("provider", assessmentProvider);
+      const res = await fetch("/api/summarize-assessment", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to summarize the assessment.");
+      setAssessmentSummary(data.summary || "");
+
+      if (data.recognizedForm && data.fields) {
+        const f = data.fields;
+        if (f.businessName) setBusinessName(f.businessName);
+        if (f.contactName) setContactName(f.contactName);
+        if (f.contactEmail) setContactEmail(f.contactEmail);
+
+        const ws = parseInt(f.workstations, 10);
+        if (Number.isFinite(ws) && ws >= 0) setWorkstations(ws);
+        const srv = parseInt(f.servers, 10);
+        if (Number.isFinite(srv) && srv >= 0) setServers(srv);
+        const emp = parseInt(f.employees, 10);
+        if (Number.isFinite(emp) && emp >= 0) setSeats(emp);
+
+        setCompliance(Boolean(f.complianceApplies));
+
+        const notes = [
+          f.clientGoals && `Client-stated goals/concerns: ${f.clientGoals}`,
+          f.budgetRange && `Budget range: ${f.budgetRange}`,
+          f.desiredTimeline && `Desired timeline: ${f.desiredTimeline}`
+        ].filter(Boolean).join("\n");
+        if (notes) setContext((prev) => prev || notes);
+
+        setAssessmentFilled(true);
+      } else {
+        setAssessmentUnrecognized(true);
+      }
+    } catch (err) {
+      setAssessmentError(err.message || "Could not reach the AI provider.");
+    } finally {
+      setSummarizing(false);
+    }
+  }
 
   async function handleDraft() {
     setDraftError("");
@@ -229,29 +283,6 @@ export default function App() {
     }
   }
 
-  async function handleSummarizeAssessment() {
-    setAssessmentError("");
-    setAssessmentSummary("");
-    if (!assessmentFile) {
-      setAssessmentError("Choose a filled-out assessment PDF first.");
-      return;
-    }
-    setSummarizing(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", assessmentFile);
-      formData.append("provider", assessmentProvider);
-      const res = await fetch("/api/summarize-assessment", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to summarize the assessment.");
-      setAssessmentSummary(data.summary || "");
-    } catch (err) {
-      setAssessmentError(err.message || "Could not reach the AI provider.");
-    } finally {
-      setSummarizing(false);
-    }
-  }
-
   return (
     <div style={card}>
       <div style={{ padding: "20px 20px 24px", background: NAVY }}>
@@ -271,6 +302,137 @@ export default function App() {
             <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>${annual.toLocaleString()}</div>
           </div>
         </div>
+      </div>
+
+      <div style={{ padding: "18px 20px 22px", background: LIGHT, borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <FileText size={16} color={BLUE} />
+          <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>Start from a completed assessment</div>
+        </div>
+        <div style={{ fontSize: 11.5, color: GREY, marginBottom: 10 }}>
+          Optional. Attach a filled-out Network &amp; Security Assessment PDF to
+          auto-fill the worksheet below and get an AI risk summary.
+        </div>
+
+        <label
+          htmlFor="assessment-file"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            width: "100%",
+            boxSizing: "border-box",
+            fontSize: 13,
+            borderRadius: 8,
+            border: `1px dashed ${BORDER}`,
+            background: "#fff",
+            padding: "10px 10px",
+            color: assessmentFile ? TEXT : GREY,
+            cursor: "pointer",
+            marginBottom: 10
+          }}
+        >
+          <Paperclip size={15} />
+          {assessmentFile ? assessmentFile.name : "Attach filled-out assessment PDF"}
+        </label>
+        <input
+          id="assessment-file"
+          type="file"
+          accept="application/pdf"
+          onChange={(e) => {
+            setAssessmentFile(e.target.files?.[0] || null);
+            setAssessmentSummary("");
+            setAssessmentError("");
+            setAssessmentFilled(false);
+            setAssessmentUnrecognized(false);
+          }}
+          style={{ display: "none" }}
+        />
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
+            AI provider
+          </label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[
+              { id: "ollama", label: "Ollama (self-hosted)" },
+              { id: "gemini", label: "Google Gemini" }
+            ].map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setAssessmentProvider(p.id)}
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 8,
+                  border: `1px solid ${assessmentProvider === p.id ? BLUE : BORDER}`,
+                  background: assessmentProvider === p.id ? BLUE : "#fff",
+                  color: assessmentProvider === p.id ? "#fff" : TEXT,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: "pointer"
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={handleSummarizeAssessment}
+          disabled={summarizing}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            padding: "10px 0",
+            borderRadius: 8,
+            border: "none",
+            background: BLUE,
+            color: "#fff",
+            fontSize: 13.5,
+            fontWeight: 700,
+            cursor: summarizing ? "default" : "pointer",
+            opacity: summarizing ? 0.75 : 1
+          }}
+        >
+          {summarizing ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+          {summarizing ? `Analyzing with ${assessmentProvider === "gemini" ? "Gemini" : "Ollama"}...` : "Analyze assessment"}
+        </button>
+
+        {assessmentError && (
+          <div style={{ marginTop: 8, fontSize: 12, color: RED }}>{assessmentError}</div>
+        )}
+
+        {assessmentFilled && (
+          <div style={{ marginTop: 8, fontSize: 12, color: GREEN }}>
+            Pulled business info, device counts, and compliance status into the worksheet below — review before sending.
+          </div>
+        )}
+
+        {assessmentUnrecognized && (
+          <div style={{ marginTop: 8, fontSize: 12, color: GREY }}>
+            Got a summary, but this doesn't look like the SwyfTech assessment form, so the worksheet fields weren't auto-filled.
+          </div>
+        )}
+
+        {assessmentSummary && (
+          <div style={{ marginTop: 16 }}>
+            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Summary</label>
+            <textarea
+              value={assessmentSummary}
+              onChange={(e) => setAssessmentSummary(e.target.value)}
+              rows={8}
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
+            />
+            <div style={{ marginTop: 8, fontSize: 11.5, color: GREY }}>
+              This will be included automatically when you draft the quote email with AI.
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{ padding: "16px 20px 0", background: "#fff" }}>
@@ -443,119 +605,6 @@ export default function App() {
                 {sendResult.message}
               </div>
             )}
-          </div>
-        )}
-      </div>
-
-      <div style={{ padding: "18px 20px 22px", background: LIGHT, borderTop: `1px solid ${BORDER}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <FileText size={16} color={BLUE} />
-          <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>Summarize completed assessment</div>
-        </div>
-
-        <label
-          htmlFor="assessment-file"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            width: "100%",
-            boxSizing: "border-box",
-            fontSize: 13,
-            borderRadius: 8,
-            border: `1px dashed ${BORDER}`,
-            background: "#fff",
-            padding: "10px 10px",
-            color: assessmentFile ? TEXT : GREY,
-            cursor: "pointer",
-            marginBottom: 10
-          }}
-        >
-          <Paperclip size={15} />
-          {assessmentFile ? assessmentFile.name : "Attach filled-out assessment PDF"}
-        </label>
-        <input
-          id="assessment-file"
-          type="file"
-          accept="application/pdf"
-          onChange={(e) => {
-            setAssessmentFile(e.target.files?.[0] || null);
-            setAssessmentSummary("");
-            setAssessmentError("");
-          }}
-          style={{ display: "none" }}
-        />
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
-            AI provider
-          </label>
-          <div style={{ display: "flex", gap: 8 }}>
-            {[
-              { id: "ollama", label: "Ollama (self-hosted)" },
-              { id: "gemini", label: "Google Gemini" }
-            ].map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setAssessmentProvider(p.id)}
-                style={{
-                  flex: 1,
-                  padding: "8px 0",
-                  borderRadius: 8,
-                  border: `1px solid ${assessmentProvider === p.id ? BLUE : BORDER}`,
-                  background: assessmentProvider === p.id ? BLUE : "#fff",
-                  color: assessmentProvider === p.id ? "#fff" : TEXT,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer"
-                }}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <button
-          onClick={handleSummarizeAssessment}
-          disabled={summarizing}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            padding: "10px 0",
-            borderRadius: 8,
-            border: "none",
-            background: BLUE,
-            color: "#fff",
-            fontSize: 13.5,
-            fontWeight: 700,
-            cursor: summarizing ? "default" : "pointer",
-            opacity: summarizing ? 0.75 : 1
-          }}
-        >
-          {summarizing ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
-          {summarizing ? `Summarizing with ${assessmentProvider === "gemini" ? "Gemini" : "Ollama"}...` : "Summarize assessment"}
-        </button>
-
-        {assessmentError && (
-          <div style={{ marginTop: 8, fontSize: 12, color: RED }}>{assessmentError}</div>
-        )}
-
-        {assessmentSummary && (
-          <div style={{ marginTop: 16 }}>
-            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Summary</label>
-            <textarea
-              value={assessmentSummary}
-              onChange={(e) => setAssessmentSummary(e.target.value)}
-              rows={10}
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
-            />
-            <div style={{ marginTop: 8, fontSize: 11.5, color: GREY }}>
-              This will be included automatically when you draft the quote email with AI.
-            </div>
           </div>
         )}
       </div>
