@@ -106,13 +106,21 @@ Want to build the image yourself instead of using the published one? See
 
 ## Environment variables
 
-Set these in your deploy tool's environment editor (or `docker-compose.yml`
-directly, or a `.env` file for local runs — see `.env.example`):
+Set these in your deploy tool's environment-variables UI (Portainer,
+Dockhand, etc.), or in a `.env` file next to `docker-compose.yml` if you're
+running `docker compose` yourself — see `.env.example`. Either way works:
+`docker-compose.yml` references each one as `${VAR_NAME:-default}`, so your
+deploy tool's env values (or the `.env` file) get substituted in, falling
+back to the default shown below if unset. (If you ever see your env values
+not taking effect, check that the `environment:` block in
+`docker-compose.yml` still uses `${...}` placeholders and not hardcoded
+literal values — a hardcoded value has nothing for a deploy tool to
+substitute into, which is a very easy mistake to reintroduce.)
 
 | Variable | Default | Notes |
 |---|---|---|
-| `PORT` | `8787` | Port the app listens on inside the container |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Your Ollama instance. If it's the Open WebUI/Ollama stack on the same Unraid box but a different Docker network, use the box's LAN IP (e.g. `http://10.0.20.5:11434`) rather than `localhost` |
+| `PORT` | `8787` | Port the app listens on, both inside the container and on the host (`-p` mapping) |
+| `OLLAMA_BASE_URL` | `http://ollama:11434` in Docker, `http://localhost:11434` outside it | Your Ollama instance. If it's the Open WebUI/Ollama stack on the same Unraid box but a different Docker network, use the box's LAN IP (e.g. `http://10.0.20.5:11434`) rather than `localhost` |
 | `OLLAMA_MODEL` | `llama3.1` | Whichever model you've pulled in Ollama |
 | `GEMINI_API_KEY` | — | Optional. Set to enable the Gemini provider. Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Which Gemini model to use |

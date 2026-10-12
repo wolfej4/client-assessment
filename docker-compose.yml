@@ -12,6 +12,15 @@
 # Package settings -> Change visibility), or run `docker login ghcr.io` on
 # the Docker host with a GitHub personal access token that has `read:packages`.
 #
+# Environment variables below use ${VAR_NAME:-default} interpolation, not
+# hardcoded values. This is what lets your deploy tool's "environment
+# variables" UI (Portainer, Dockhand, etc.) actually take effect: those UIs
+# work by substituting ${VAR_NAME} placeholders in this file (or by setting
+# real env vars the `docker compose`/`docker stack` command then reads), and
+# have nothing to substitute into a line that's already a literal value. If
+# you're running this with the `docker compose` CLI instead, put the same
+# variables in a `.env` file next to this one (see `.env.example`).
+#
 # For local development, build directly instead: `docker build -t
 # swyftech-quote-app .` (see "Building the production image manually" in
 # the README), or add a `build: .` override in a docker-compose.override.yml.
@@ -21,30 +30,30 @@ services:
     container_name: swyftech-quote-app
     restart: unless-stopped
     ports:
-      - "8787:8787"
+      - "${PORT:-8787}:8787"
     environment:
-      PORT: "8787"
+      PORT: "${PORT:-8787}"
 
       # Point this at your existing Ollama/Open WebUI instance on Unraid.
       # If Ollama is on the host (not this same Docker network), use the
       # Unraid box's LAN IP, e.g. http://10.0.20.5:11434
-      OLLAMA_BASE_URL: "http://ollama:11434"
-      OLLAMA_MODEL: "llama3.1"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.1}"
 
       # Optional: Google Gemini as an alternative AI provider for the quote
       # summary draft. Get a key at https://aistudio.google.com/apikey
-      GEMINI_API_KEY: ""
-      GEMINI_MODEL: "gemini-2.5-flash"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-2.5-flash}"
 
       # SMTP relay used to send quote emails to clients.
-      SMTP_HOST: "smtp.example.com"
-      SMTP_PORT: "587"
-      SMTP_SECURE: "false"
-      SMTP_USER: "quotes@swyftech.example"
-      SMTP_PASS: "changeme"
-      MAIL_FROM: "SwyfTech LLC <quotes@swyftech.example>"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_SECURE: "${SMTP_SECURE:-false}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      MAIL_FROM: "${MAIL_FROM:-SwyfTech LLC <quotes@swyftech.example>}"
       # Optional: send yourself a copy of every quote email sent.
-      MAIL_BCC: "jacob@swyftech.example"
+      MAIL_BCC: "${MAIL_BCC:-}"
     # If Ollama runs in another Docker Compose project/network on the same
     # host, either put both on a shared external network, or just use the
     # host's LAN IP in OLLAMA_BASE_URL above instead of a service name.
