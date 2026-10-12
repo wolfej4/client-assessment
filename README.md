@@ -65,7 +65,13 @@ are left as-is — you still get the AI summary, just not the auto-fill.
 1. Push this folder to a repo (e.g. a new repo alongside your existing
    `wolfej4/msp-pitch`, or a folder inside it).
 2. In Portainer: **Stacks → Add stack → Repository**, point it at the repo/
-   branch, and set the compose path to `docker-compose.yml`.
+   branch, and set the compose path to `docker-compose.yml`. **Don't use the
+   "Web editor" option with a pasted copy of this file** — it has no access
+   to the Dockerfile or source, so Docker can't build the image and instead
+   tries to *pull* `swyftech-quote-app:latest` from a registry, which fails
+   with `pull access denied ... repository does not exist` (nothing by that
+   name is ever published anywhere). The Repository method gives Portainer
+   the actual build context, so `build: .` works as intended.
 3. Fill in the environment variables in the Portainer stack editor (see
    below) — you don't need a `.env` file if you set them there.
 4. Deploy. Portainer will build the image from the `Dockerfile` and start it.
