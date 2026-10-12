@@ -1,18 +1,23 @@
-# IMPORTANT: this stack must be deployed from a build context that includes
-# this repo (the Dockerfile, server/, frontend/, etc.) — e.g. Portainer's
-# "Stacks -> Add stack -> Repository" option pointed at this repo/branch,
-# or `docker compose up` run from a local clone. Pasting just this file into
-# Portainer's "Web editor" has no build context, so Docker can't build the
-# image and will instead try to PULL "swyftech-quote-app:latest" from a
-# registry — which fails, since this image is never published anywhere
-# ("pull access denied ... repository does not exist"). `pull_policy: build`
-# below makes that failure mode clearer (a build error instead of a pull/auth
-# error) if it happens, but it does not create a build context.
+# This stack pulls a pre-built image from GitHub Container Registry (built
+# and pushed by .github/workflows/docker-publish.yml on every push to main)
+# instead of building locally. That makes it deployable from any Docker UI
+# or tool — including ones that don't support a `build:` directive and just
+# do a plain `docker pull` (several Portainer-alternative "stack" tools are
+# pull-only; pasting a compose file with `build: .` into one of those fails
+# with "pull access denied ... repository does not exist", since there was
+# never a real image to pull).
+#
+# First-time setup: after the image has been pushed at least once, either
+# make the ghcr.io package public (repo -> Packages -> swyftech-quote-app ->
+# Package settings -> Change visibility), or run `docker login ghcr.io` on
+# the Docker host with a GitHub personal access token that has `read:packages`.
+#
+# For local development, build directly instead: `docker build -t
+# swyftech-quote-app .` (see "Building the production image manually" in
+# the README), or add a `build: .` override in a docker-compose.override.yml.
 services:
   swyftech-quote-app:
-    build: .
-    image: swyftech-quote-app:latest
-    pull_policy: build
+    image: ghcr.io/wolfej4/swyftech-quote-app:latest
     container_name: swyftech-quote-app
     restart: unless-stopped
     ports:

@@ -32,7 +32,10 @@ Ollama instance or Google Gemini — and sends it over SMTP.
   `server/index.js` looks for — if you edit the template, keep the field
   names in sync (or update `WORKSHEET_FIELD_MAP` to match).
 - `Dockerfile` — multi-stage build (Vite build → slim Node runtime)
-- `docker-compose.yml` — ready to paste into a Portainer stack
+- `.github/workflows/docker-publish.yml` — builds the image and pushes it to
+  `ghcr.io/wolfej4/swyftech-quote-app` on every push to `main`
+- `docker-compose.yml` — pulls that published image; works with any Docker
+  stack UI (Portainer, Dockhand, etc.), build support or not
 
 Nothing gets emailed automatically. The AI draft always lands in an editable
 text box first — you review or tweak it, then hit "Send email" yourself.
@@ -58,41 +61,52 @@ If the uploaded PDF isn't the SwyfTech template (different form, or a
 scanned/flattened PDF with no matching field names), the worksheet fields
 are left as-is — you still get the AI summary, just not the auto-fill.
 
-## Deploying in Portainer
+## Deploying
 
-**Option A — Portainer builds it from a Git repo (recommended)**
+**The image is built by CI, not by your deploy tool.**
+`.github/workflows/docker-publish.yml` builds and pushes
+`ghcr.io/wolfej4/swyftech-quote-app:latest` to GitHub Container Registry on
+every push to `main`. `docker-compose.yml` just pulls that image — it has no
+`build:` directive. This is deliberate: lots of Docker UIs (Portainer's "Web
+editor" without a repo, Dockhand, and other lightweight stack tools) only
+support pulling a pre-built image and either ignore a `build:` key or have
+no build context to use it with. Pointing those tools at a *source repo*
+instead of a real image is exactly what produces
+`pull access denied ... repository does not exist` — the tool tried to pull
+an image that was never published anywhere, because it assumed something
+else would build it locally first. Publishing via CI sidesteps all of that:
+there's always a real, pullable image at that tag, regardless of which tool
+deploys it or whether that tool can build at all.
 
-1. Push this folder to a repo (e.g. a new repo alongside your existing
-   `wolfej4/msp-pitch`, or a folder inside it).
-2. In Portainer: **Stacks → Add stack → Repository**, point it at the repo/
-   branch, and set the compose path to `docker-compose.yml`. **Don't use the
-   "Web editor" option with a pasted copy of this file** — it has no access
-   to the Dockerfile or source, so Docker can't build the image and instead
-   tries to *pull* `swyftech-quote-app:latest` from a registry, which fails
-   with `pull access denied ... repository does not exist` (nothing by that
-   name is ever published anywhere). The Repository method gives Portainer
-   the actual build context, so `build: .` works as intended.
-3. Fill in the environment variables in the Portainer stack editor (see
-   below) — you don't need a `.env` file if you set them there.
-4. Deploy. Portainer will build the image from the `Dockerfile` and start it.
+**One-time setup after the first CI push:**
 
-**Option B — build locally, push to a registry, deploy from image**
+The GHCR package is private by default, so the Docker host needs access to pull it:
 
-```bash
-docker build -t ghcr.io/wolfej4/swyftech-quote-app:latest .
-docker push ghcr.io/wolfej4/swyftech-quote-app:latest
-```
+- **Easiest:** on GitHub, go to the repo → **Packages** → `swyftech-quote-app`
+  → **Package settings** → change visibility to **Public**.
+- **Or:** on the Docker host, `docker login ghcr.io -u <your-github-username>`
+  using a [personal access token](https://github.com/settings/tokens) with
+  `read:packages` scope as the password.
 
-Then in `docker-compose.yml`, replace `build: .` with:
-```yaml
-image: ghcr.io/wolfej4/swyftech-quote-app:latest
-```
-and deploy that stack in Portainer as usual (**Stacks → Add stack → Web
-editor**, paste the compose file).
+**Deploying the stack (any tool):**
+
+1. In Portainer, Dockhand, or whatever you're using: add a stack pointed at
+   this repo's `docker-compose.yml` (or just paste its contents — it works
+   either way now, since there's nothing to build).
+2. Fill in the environment variables (see below).
+3. Deploy. It pulls `ghcr.io/wolfej4/swyftech-quote-app:latest` and starts it.
+
+To pick up a new version after pushing more commits, redeploy/"pull & recreate"
+the stack — most of these tools have a button for that — or `docker compose
+pull && docker compose up -d` on the host.
+
+Want to build the image yourself instead of using the published one? See
+"Building the production image manually" below, or add a
+`docker-compose.override.yml` with a `build: .` for that service.
 
 ## Environment variables
 
-Set these in the Portainer stack's environment editor (or `docker-compose.yml`
+Set these in your deploy tool's environment editor (or `docker-compose.yml`
 directly, or a `.env` file for local runs — see `.env.example`):
 
 | Variable | Default | Notes |
