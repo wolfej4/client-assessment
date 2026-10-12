@@ -24,6 +24,11 @@
 # For local development, build directly instead: `docker build -t
 # swyftech-quote-app .` (see "Building the production image manually" in
 # the README), or add a `build: .` override in a docker-compose.override.yml.
+#
+# Saved quote/assessment history is written to /app/data/history.json inside
+# the container. The volume below maps that to ./data on the host (or
+# wherever DATA_DIR_HOST points) so history survives container
+# recreates/redeploys — without it, every redeploy wipes your history.
 services:
   swyftech-quote-app:
     image: ghcr.io/wolfej4/swyftech-quote-app:latest
@@ -31,6 +36,11 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-8787}:8787"
+    volumes:
+      # Saved assessment/quote history (server/history.js) lives here as
+      # history.json. Without this volume, history is lost on every
+      # redeploy/recreate since it's only written inside the container.
+      - ${DATA_DIR_HOST:-./data}:/app/data
     environment:
       PORT: "${PORT:-8787}"
 

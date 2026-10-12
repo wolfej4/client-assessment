@@ -1,5 +1,8 @@
-import React, { useState, useMemo } from "react";
-import { Monitor, Server, Users, ShieldCheck, Moon, Plus, Minus, Mail, Sparkles, Send, Loader2, FileText, Paperclip, Download } from "lucide-react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
+import {
+  Monitor, Server, Users, ShieldCheck, Moon, Plus, Minus, Mail, Sparkles, Send, Loader2,
+  FileText, Paperclip, Download, FilePlus2, Trash2, Clock
+} from "lucide-react";
 
 const NAVY = "#0f2438";
 const BLUE = "#1f6fa8";
@@ -10,9 +13,11 @@ const BORDER = "#c8d6de";
 const GREEN = "#1d9e75";
 const RED = "#c94b4b";
 
+const SIDEBAR_W = 280;
+
 const card = {
   width: "100%",
-  maxWidth: 480,
+  maxWidth: 640,
   margin: "0 auto",
   borderRadius: 14,
   overflow: "hidden",
@@ -109,6 +114,18 @@ function Field({ label, value, onChange, placeholder, type = "text" }) {
   );
 }
 
+function timeAgo(iso) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export default function App() {
   const [workstations, setWorkstations] = useState(8);
   const [servers, setServers] = useState(1);
@@ -144,6 +161,150 @@ export default function App() {
   const [assessmentError, setAssessmentError] = useState("");
   const [assessmentFilled, setAssessmentFilled] = useState(false);
   const [assessmentUnrecognized, setAssessmentUnrecognized] = useState(false);
+
+  // --- History (previous assessments / quotes) ---
+  const [historyList, setHistoryList] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [loadingRecordId, setLoadingRecordId] = useState(null);
+  const [historyErr, setHistoryErr] = useState("");
+  const [currentId, setCurrentId] = useState(null);
+
+  const refreshHistory = useCallback(async () => {
+    try {
+      const res = await fetch("/api/history");
+      const data = await res.json();
+      if (res.ok) setHistoryList(data.records || []);
+    } catch {
+      // Silent — the sidebar just stays as-is if this fails.
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
+
+  function resetWorksheet() {
+    setWorkstations(8);
+    setServers(1);
+    setSeats(8);
+    setWsRate(45);
+    setSrvRate(140);
+    setSeatRate(15);
+    setCompliance(false);
+    setAfterHours(false);
+    setBusinessName("");
+    setContactName("");
+    setContactEmail("");
+    setContext("");
+    setDraftSubject("");
+    setDraftBody("");
+    setDraftError("");
+    setSendResult(null);
+    setAssessmentFile(null);
+    setAssessmentSummary("");
+    setAssessmentError("");
+    setAssessmentFilled(false);
+    setAssessmentUnrecognized(false);
+    setCurrentId(null);
+  }
+
+  async function loadHistoryRecord(id) {
+    setLoadingRecordId(id);
+    setHistoryErr("");
+    try {
+      const res = await fetch(`/api/history/${id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load that record.");
+      const r = data.record;
+      setWorkstations(r.workstations ?? 8);
+      setServers(r.servers ?? 1);
+      setSeats(r.seats ?? 8);
+      setWsRate(r.wsRate ?? 45);
+      setSrvRate(r.srvRate ?? 140);
+      setSeatRate(r.seatRate ?? 15);
+      setCompliance(Boolean(r.compliance));
+      setAfterHours(Boolean(r.afterHours));
+      setBusinessName(r.businessName || "");
+      setContactName(r.contactName || "");
+      setContactEmail(r.contactEmail || "");
+      setContext(r.context || "");
+      setProvider(r.provider || "ollama");
+      setAssessmentProvider(r.assessmentProvider || "ollama");
+      setAssessmentSummary(r.assessmentSummary || "");
+      setDraftSubject(r.draftSubject || "");
+      setDraftBody(r.draftBody || "");
+      setSendResult(r.sent ? { ok: true, message: `Sent to ${r.contactEmail || "client"} on ${new Date(r.sentAt).toLocaleString()}.` } : null);
+      setAssessmentFile(null);
+      setAssessmentError("");
+      setAssessmentFilled(false);
+      setAssessmentUnrecognized(false);
+      setDraftError("");
+      setCurrentId(r.id);
+    } catch (err) {
+      setHistoryErr(err.message || "Failed to load that record.");
+    } finally {
+      setLoadingRecordId(null);
+    }
+  }
+
+  async function handleDeleteHistory(id, e) {
+    e.stopPropagation();
+    try {
+      await fetch(`/api/history/${id}`, { method: "DELETE" });
+      if (id === currentId) resetWorksheet();
+      refreshHistory();
+    } catch {
+      setHistoryErr("Failed to delete that record.");
+    }
+  }
+
+  async function persistHistory(overrides) {
+    const name = overrides.businessName ?? businessName;
+    if (!name || !name.trim()) return;
+
+    const payload = {
+      id: currentId || undefined,
+      businessName: name,
+      contactName,
+      contactEmail,
+      context,
+      workstations,
+      servers,
+      seats,
+      wsRate,
+      srvRate,
+      seatRate,
+      compliance,
+      afterHours,
+      monthly,
+      annual,
+      assessmentSummary,
+      assessmentFields: null,
+      provider,
+      assessmentProvider,
+      draftSubject,
+      draftBody,
+      sent: false,
+      ...overrides
+    };
+
+    try {
+      const res = await fetch("/api/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok && data.record) {
+        setCurrentId(data.record.id);
+        refreshHistory();
+      }
+    } catch {
+      // Non-critical — don't block the main workflow if history saving fails.
+    }
+  }
 
   const lines = useMemo(() => {
     const items = [];
@@ -200,8 +361,23 @@ export default function App() {
         if (notes) setContext((prev) => prev || notes);
 
         setAssessmentFilled(true);
+
+        persistHistory({
+          businessName: f.businessName || businessName,
+          contactName: f.contactName || contactName,
+          contactEmail: f.contactEmail || contactEmail,
+          context: notes || context,
+          workstations: Number.isFinite(ws) && ws >= 0 ? ws : workstations,
+          servers: Number.isFinite(srv) && srv >= 0 ? srv : servers,
+          seats: Number.isFinite(emp) && emp >= 0 ? emp : seats,
+          compliance: Boolean(f.complianceApplies),
+          assessmentSummary: data.summary || "",
+          assessmentFields: f,
+          assessmentProvider
+        });
       } else {
         setAssessmentUnrecognized(true);
+        persistHistory({ assessmentSummary: data.summary || "", assessmentProvider });
       }
     } catch (err) {
       setAssessmentError(err.message || "Could not reach the AI provider.");
@@ -242,8 +418,11 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to draft email.");
-      setDraftSubject(data.subject || `Your SwyfTech IT quote for ${businessName}`);
-      setDraftBody(data.body || "");
+      const subject = data.subject || `Your SwyfTech IT quote for ${businessName}`;
+      const body = data.body || "";
+      setDraftSubject(subject);
+      setDraftBody(body);
+      persistHistory({ draftSubject: subject, draftBody: body, provider });
     } catch (err) {
       setDraftError(err.message || "Could not reach the AI provider.");
     } finally {
@@ -276,6 +455,7 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to send email.");
       setSendResult({ ok: true, message: `Sent to ${contactEmail}.` });
+      persistHistory({ sent: true, sentAt: new Date().toISOString() });
     } catch (err) {
       setSendResult({ ok: false, message: err.message || "Send failed." });
     } finally {
@@ -284,347 +464,454 @@ export default function App() {
   }
 
   return (
-    <div style={card}>
-      <div style={{ padding: "20px 20px 24px", background: NAVY }}>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: "#7fb8d9" }}>
-          SwyfTech LLC
+    <div style={{ display: "flex", height: "100vh", width: "100%", background: LIGHT }}>
+      <div
+        style={{
+          width: SIDEBAR_W,
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          background: NAVY,
+          borderRight: `1px solid ${BORDER}`,
+          height: "100%"
+        }}
+      >
+        <div style={{ padding: "18px 16px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: "#7fb8d9" }}>
+            SwyfTech LLC
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginTop: 2 }}>Pricing Worksheet</div>
+
+          <button
+            onClick={resetWorksheet}
+            style={{
+              width: "100%",
+              marginTop: 14,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              padding: "9px 0",
+              borderRadius: 8,
+              border: "none",
+              background: BLUE,
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer"
+            }}
+          >
+            <FilePlus2 size={15} />
+            New quote
+          </button>
         </div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginTop: 2 }}>Pricing Worksheet</div>
-        <div style={{ marginTop: 16, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 11.5, color: "#9fb6c7" }}>Monthly total</div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: "#fff", lineHeight: 1.1 }}>
-              ${monthly.toLocaleString()}
+
+        <div style={{ padding: "0 16px 8px", display: "flex", alignItems: "center", gap: 6 }}>
+          <Clock size={13} color="#9fb6c7" />
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "#9fb6c7" }}>
+            History
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 10px 16px" }}>
+          {historyLoading && (
+            <div style={{ fontSize: 12, color: "#9fb6c7", padding: "8px 6px" }}>Loading...</div>
+          )}
+          {!historyLoading && historyList.length === 0 && (
+            <div style={{ fontSize: 12, color: "#9fb6c7", padding: "8px 6px" }}>
+              Nothing saved yet. Analyze an assessment or draft a quote to start building history.
             </div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 11.5, color: "#9fb6c7" }}>Annual</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>${annual.toLocaleString()}</div>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ padding: "18px 20px 22px", background: LIGHT, borderBottom: `1px solid ${BORDER}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-          <FileText size={16} color={BLUE} />
-          <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>Start from a completed assessment</div>
-        </div>
-        <div style={{ fontSize: 11.5, color: GREY, marginBottom: 10 }}>
-          Optional. Attach a filled-out Network &amp; Security Assessment PDF to
-          auto-fill the worksheet below and get an AI risk summary.
-        </div>
-
-        <a
-          href="/SwyfTech_Network_Security_Assessment.pdf"
-          download
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-            color: BLUE,
-            textDecoration: "none",
-            marginBottom: 14
-          }}
-        >
-          <Download size={13} />
-          Don't have one yet? Download the blank assessment PDF
-        </a>
-
-        <label
-          htmlFor="assessment-file"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            width: "100%",
-            boxSizing: "border-box",
-            fontSize: 13,
-            borderRadius: 8,
-            border: `1px dashed ${BORDER}`,
-            background: "#fff",
-            padding: "10px 10px",
-            color: assessmentFile ? TEXT : GREY,
-            cursor: "pointer",
-            marginBottom: 10
-          }}
-        >
-          <Paperclip size={15} />
-          {assessmentFile ? assessmentFile.name : "Attach filled-out assessment PDF"}
-        </label>
-        <input
-          id="assessment-file"
-          type="file"
-          accept="application/pdf"
-          onChange={(e) => {
-            setAssessmentFile(e.target.files?.[0] || null);
-            setAssessmentSummary("");
-            setAssessmentError("");
-            setAssessmentFilled(false);
-            setAssessmentUnrecognized(false);
-          }}
-          style={{ display: "none" }}
-        />
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
-            AI provider
-          </label>
-          <div style={{ display: "flex", gap: 8 }}>
-            {[
-              { id: "ollama", label: "Ollama (self-hosted)" },
-              { id: "gemini", label: "Google Gemini" }
-            ].map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setAssessmentProvider(p.id)}
+          )}
+          {historyList.map((r) => {
+            const active = r.id === currentId;
+            return (
+              <div
+                key={r.id}
+                onClick={() => loadHistoryRecord(r.id)}
                 style={{
-                  flex: 1,
-                  padding: "8px 0",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  gap: 6,
+                  padding: "9px 10px",
                   borderRadius: 8,
-                  border: `1px solid ${assessmentProvider === p.id ? BLUE : BORDER}`,
-                  background: assessmentProvider === p.id ? BLUE : "#fff",
-                  color: assessmentProvider === p.id ? "#fff" : TEXT,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer"
+                  marginBottom: 4,
+                  cursor: "pointer",
+                  background: active ? "rgba(255,255,255,0.12)" : "transparent"
                 }}
               >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <button
-          onClick={handleSummarizeAssessment}
-          disabled={summarizing}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            padding: "10px 0",
-            borderRadius: 8,
-            border: "none",
-            background: BLUE,
-            color: "#fff",
-            fontSize: 13.5,
-            fontWeight: 700,
-            cursor: summarizing ? "default" : "pointer",
-            opacity: summarizing ? 0.75 : 1
-          }}
-        >
-          {summarizing ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
-          {summarizing ? `Analyzing with ${assessmentProvider === "gemini" ? "Gemini" : "Ollama"}...` : "Analyze assessment"}
-        </button>
-
-        {assessmentError && (
-          <div style={{ marginTop: 8, fontSize: 12, color: RED }}>{assessmentError}</div>
-        )}
-
-        {assessmentFilled && (
-          <div style={{ marginTop: 8, fontSize: 12, color: GREEN }}>
-            Pulled business info, device counts, and compliance status into the worksheet below — review before sending.
-          </div>
-        )}
-
-        {assessmentUnrecognized && (
-          <div style={{ marginTop: 8, fontSize: 12, color: GREY }}>
-            Got a summary, but this doesn't look like the SwyfTech assessment form, so the worksheet fields weren't auto-filled.
-          </div>
-        )}
-
-        {assessmentSummary && (
-          <div style={{ marginTop: 16 }}>
-            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Summary</label>
-            <textarea
-              value={assessmentSummary}
-              onChange={(e) => setAssessmentSummary(e.target.value)}
-              rows={8}
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
-            />
-            <div style={{ marginTop: 8, fontSize: 11.5, color: GREY }}>
-              This will be included automatically when you draft the quote email with AI.
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style={{ padding: "16px 20px 0", background: "#fff" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: NAVY, marginBottom: 2 }}>
-          Environment
-        </div>
-        <Stepper icon={Monitor} label="Workstations" value={workstations} onChange={setWorkstations} />
-        <Stepper icon={Server} label="Servers" value={servers} onChange={setServers} />
-        <Stepper icon={Users} label="Help desk seats" sub="Employees needing support access" value={seats} onChange={setSeats} />
-
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: NAVY, marginTop: 18, marginBottom: 2 }}>
-          Add-ons
-        </div>
-        <ToggleRow icon={ShieldCheck} label="Compliance package" sub="CMMC / HIPAA / PCI docs & controls" price={complianceFee} checked={compliance} onChange={setCompliance} />
-        <ToggleRow icon={Moon} label="After-hours priority" sub="Guaranteed response outside business hours" price={afterHoursFee} checked={afterHours} onChange={setAfterHours} />
-
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: NAVY, marginTop: 18, marginBottom: 2 }}>
-          Rates
-        </div>
-        <div style={{ borderRadius: 8, background: LIGHT, padding: "2px 12px", marginBottom: 20 }}>
-          <RateInput label="Per workstation" value={wsRate} onChange={setWsRate} />
-          <RateInput label="Per server" value={srvRate} onChange={setSrvRate} />
-          <RateInput label="Per help desk seat" value={seatRate} onChange={setSeatRate} />
-        </div>
-      </div>
-
-      <div style={{ padding: "16px 20px", background: LIGHT }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: NAVY, marginBottom: 8 }}>
-          Breakdown
-        </div>
-        {lines.length === 0 ? (
-          <div style={{ fontSize: 12, color: GREY }}>Add devices or seats to build a quote.</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {lines.map((l, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                <span style={{ color: GREY }}>{l.label}</span>
-                <span style={{ color: TEXT, fontWeight: 600 }}>${l.amount.toLocaleString()}</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {r.businessName || "(untitled)"}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#9fb6c7", marginTop: 1 }}>
+                    {r.monthly ? `$${r.monthly.toLocaleString()}/mo` : "—"}
+                    {r.sent ? " · sent" : ""} · {timeAgo(r.updatedAt)}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                  {loadingRecordId === r.id && <Loader2 size={13} className="spin" color="#9fb6c7" />}
+                  <button
+                    onClick={(e) => handleDeleteHistory(r.id, e)}
+                    aria-label="Delete"
+                    style={{ border: "none", background: "transparent", color: "#9fb6c7", cursor: "pointer", padding: 2, display: "flex" }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+          {historyErr && (
+            <div style={{ fontSize: 11.5, color: "#f3b3b3", padding: "4px 6px" }}>{historyErr}</div>
+          )}
+        </div>
       </div>
 
-      <div style={{ padding: "18px 20px 22px", background: "#fff", borderTop: `1px solid ${BORDER}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <Mail size={16} color={BLUE} />
-          <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>Email quote to client</div>
-        </div>
-
-        <Field label="Client business name" value={businessName} onChange={setBusinessName} placeholder="Acme HVAC LLC" />
-        <Field label="Contact name" value={contactName} onChange={setContactName} placeholder="Jane Smith" />
-        <Field label="Contact email" value={contactEmail} onChange={setContactEmail} placeholder="jane@acmehvac.com" type="email" />
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
-            Notes for the AI draft (optional)
-          </label>
-          <textarea
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-            placeholder="e.g. mention their aging firewall, they're worried about ransomware, prior IT guy retired"
-            rows={3}
-            style={{ width: "100%", boxSizing: "border-box", fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, resize: "vertical", fontFamily: "inherit" }}
-          />
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
-            AI provider
-          </label>
-          <div style={{ display: "flex", gap: 8 }}>
-            {[
-              { id: "ollama", label: "Ollama (self-hosted)" },
-              { id: "gemini", label: "Google Gemini" }
-            ].map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setProvider(p.id)}
-                style={{
-                  flex: 1,
-                  padding: "8px 0",
-                  borderRadius: 8,
-                  border: `1px solid ${provider === p.id ? BLUE : BORDER}`,
-                  background: provider === p.id ? BLUE : "#fff",
-                  color: provider === p.id ? "#fff" : TEXT,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer"
-                }}
-              >
-                {p.label}
-              </button>
-            ))}
+      <main style={{ flex: 1, overflowY: "auto", padding: "24px 16px" }}>
+        <div style={card}>
+          <div style={{ padding: "20px 20px 24px", background: NAVY }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: "#7fb8d9" }}>
+              SwyfTech LLC
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginTop: 2 }}>Pricing Worksheet</div>
+            <div style={{ marginTop: 16, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: 11.5, color: "#9fb6c7" }}>Monthly total</div>
+                <div style={{ fontSize: 30, fontWeight: 700, color: "#fff", lineHeight: 1.1 }}>
+                  ${monthly.toLocaleString()}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11.5, color: "#9fb6c7" }}>Annual</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>${annual.toLocaleString()}</div>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <button
-          onClick={handleDraft}
-          disabled={drafting}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            padding: "10px 0",
-            borderRadius: 8,
-            border: "none",
-            background: BLUE,
-            color: "#fff",
-            fontSize: 13.5,
-            fontWeight: 700,
-            cursor: drafting ? "default" : "pointer",
-            opacity: drafting ? 0.75 : 1
-          }}
-        >
-          {drafting ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
-          {drafting ? `Drafting with ${provider === "gemini" ? "Gemini" : "Ollama"}...` : "Draft email with AI"}
-        </button>
+          <div style={{ padding: "18px 20px 22px", background: LIGHT, borderBottom: `1px solid ${BORDER}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <FileText size={16} color={BLUE} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>Start from a completed assessment</div>
+            </div>
+            <div style={{ fontSize: 11.5, color: GREY, marginBottom: 10 }}>
+              Optional. Attach a filled-out Network &amp; Security Assessment PDF to
+              auto-fill the worksheet below and get an AI risk summary.
+            </div>
 
-        {draftError && (
-          <div style={{ marginTop: 8, fontSize: 12, color: RED }}>{draftError}</div>
-        )}
+            <a
+              href="/SwyfTech_Network_Security_Assessment.pdf"
+              download
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: BLUE,
+                textDecoration: "none",
+                marginBottom: 14
+              }}
+            >
+              <Download size={13} />
+              Don't have one yet? Download the blank assessment PDF
+            </a>
 
-        {(draftSubject || draftBody) && (
-          <div style={{ marginTop: 16 }}>
-            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Subject</label>
+            <label
+              htmlFor="assessment-file"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                width: "100%",
+                boxSizing: "border-box",
+                fontSize: 13,
+                borderRadius: 8,
+                border: `1px dashed ${BORDER}`,
+                background: "#fff",
+                padding: "10px 10px",
+                color: assessmentFile ? TEXT : GREY,
+                cursor: "pointer",
+                marginBottom: 10
+              }}
+            >
+              <Paperclip size={15} />
+              {assessmentFile ? assessmentFile.name : "Attach filled-out assessment PDF"}
+            </label>
             <input
-              type="text"
-              value={draftSubject}
-              onChange={(e) => setDraftSubject(e.target.value)}
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, marginBottom: 10 }}
+              id="assessment-file"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => {
+                setAssessmentFile(e.target.files?.[0] || null);
+                setAssessmentSummary("");
+                setAssessmentError("");
+                setAssessmentFilled(false);
+                setAssessmentUnrecognized(false);
+              }}
+              style={{ display: "none" }}
             />
-            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Body</label>
-            <textarea
-              value={draftBody}
-              onChange={(e) => setDraftBody(e.target.value)}
-              rows={10}
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
-            />
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
+                AI provider
+              </label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { id: "ollama", label: "Ollama (self-hosted)" },
+                  { id: "gemini", label: "Google Gemini" }
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setAssessmentProvider(p.id)}
+                    style={{
+                      flex: 1,
+                      padding: "8px 0",
+                      borderRadius: 8,
+                      border: `1px solid ${assessmentProvider === p.id ? BLUE : BORDER}`,
+                      background: assessmentProvider === p.id ? BLUE : "#fff",
+                      color: assessmentProvider === p.id ? "#fff" : TEXT,
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      cursor: "pointer"
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <button
-              onClick={handleSend}
-              disabled={sending}
+              onClick={handleSummarizeAssessment}
+              disabled={summarizing}
               style={{
                 width: "100%",
-                marginTop: 12,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 8,
                 padding: "10px 0",
                 borderRadius: 8,
-                border: `1px solid ${GREEN}`,
-                background: "#fff",
-                color: GREEN,
+                border: "none",
+                background: BLUE,
+                color: "#fff",
                 fontSize: 13.5,
                 fontWeight: 700,
-                cursor: sending ? "default" : "pointer",
-                opacity: sending ? 0.75 : 1
+                cursor: summarizing ? "default" : "pointer",
+                opacity: summarizing ? 0.75 : 1
               }}
             >
-              {sending ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-              {sending ? "Sending..." : "Send email"}
+              {summarizing ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+              {summarizing ? `Analyzing with ${assessmentProvider === "gemini" ? "Gemini" : "Ollama"}...` : "Analyze assessment"}
             </button>
 
-            {sendResult && (
-              <div style={{ marginTop: 8, fontSize: 12, color: sendResult.ok ? GREEN : RED }}>
-                {sendResult.message}
+            {assessmentError && (
+              <div style={{ marginTop: 8, fontSize: 12, color: RED }}>{assessmentError}</div>
+            )}
+
+            {assessmentFilled && (
+              <div style={{ marginTop: 8, fontSize: 12, color: GREEN }}>
+                Pulled business info, device counts, and compliance status into the worksheet below — review before sending.
+              </div>
+            )}
+
+            {assessmentUnrecognized && (
+              <div style={{ marginTop: 8, fontSize: 12, color: GREY }}>
+                Got a summary, but this doesn't look like the SwyfTech assessment form, so the worksheet fields weren't auto-filled.
+              </div>
+            )}
+
+            {assessmentSummary && (
+              <div style={{ marginTop: 16 }}>
+                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Summary</label>
+                <textarea
+                  value={assessmentSummary}
+                  onChange={(e) => setAssessmentSummary(e.target.value)}
+                  rows={8}
+                  style={{ width: "100%", boxSizing: "border-box", fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
+                />
+                <div style={{ marginTop: 8, fontSize: 11.5, color: GREY }}>
+                  This will be included automatically when you draft the quote email with AI.
+                </div>
               </div>
             )}
           </div>
-        )}
-      </div>
+
+          <div style={{ padding: "16px 20px 0", background: "#fff" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: NAVY, marginBottom: 2 }}>
+              Environment
+            </div>
+            <Stepper icon={Monitor} label="Workstations" value={workstations} onChange={setWorkstations} />
+            <Stepper icon={Server} label="Servers" value={servers} onChange={setServers} />
+            <Stepper icon={Users} label="Help desk seats" sub="Employees needing support access" value={seats} onChange={setSeats} />
+
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: NAVY, marginTop: 18, marginBottom: 2 }}>
+              Add-ons
+            </div>
+            <ToggleRow icon={ShieldCheck} label="Compliance package" sub="CMMC / HIPAA / PCI docs & controls" price={complianceFee} checked={compliance} onChange={setCompliance} />
+            <ToggleRow icon={Moon} label="After-hours priority" sub="Guaranteed response outside business hours" price={afterHoursFee} checked={afterHours} onChange={setAfterHours} />
+
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: NAVY, marginTop: 18, marginBottom: 2 }}>
+              Rates
+            </div>
+            <div style={{ borderRadius: 8, background: LIGHT, padding: "2px 12px", marginBottom: 20 }}>
+              <RateInput label="Per workstation" value={wsRate} onChange={setWsRate} />
+              <RateInput label="Per server" value={srvRate} onChange={setSrvRate} />
+              <RateInput label="Per help desk seat" value={seatRate} onChange={setSeatRate} />
+            </div>
+          </div>
+
+          <div style={{ padding: "16px 20px", background: LIGHT }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: NAVY, marginBottom: 8 }}>
+              Breakdown
+            </div>
+            {lines.length === 0 ? (
+              <div style={{ fontSize: 12, color: GREY }}>Add devices or seats to build a quote.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {lines.map((l, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                    <span style={{ color: GREY }}>{l.label}</span>
+                    <span style={{ color: TEXT, fontWeight: 600 }}>${l.amount.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ padding: "18px 20px 22px", background: "#fff", borderTop: `1px solid ${BORDER}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <Mail size={16} color={BLUE} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>Email quote to client</div>
+            </div>
+
+            <Field label="Client business name" value={businessName} onChange={setBusinessName} placeholder="Acme HVAC LLC" />
+            <Field label="Contact name" value={contactName} onChange={setContactName} placeholder="Jane Smith" />
+            <Field label="Contact email" value={contactEmail} onChange={setContactEmail} placeholder="jane@acmehvac.com" type="email" />
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
+                Notes for the AI draft (optional)
+              </label>
+              <textarea
+                value={context}
+                onChange={(e) => setContext(e.target.value)}
+                placeholder="e.g. mention their aging firewall, they're worried about ransomware, prior IT guy retired"
+                rows={3}
+                style={{ width: "100%", boxSizing: "border-box", fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, resize: "vertical", fontFamily: "inherit" }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
+                AI provider
+              </label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { id: "ollama", label: "Ollama (self-hosted)" },
+                  { id: "gemini", label: "Google Gemini" }
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setProvider(p.id)}
+                    style={{
+                      flex: 1,
+                      padding: "8px 0",
+                      borderRadius: 8,
+                      border: `1px solid ${provider === p.id ? BLUE : BORDER}`,
+                      background: provider === p.id ? BLUE : "#fff",
+                      color: provider === p.id ? "#fff" : TEXT,
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      cursor: "pointer"
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={handleDraft}
+              disabled={drafting}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                padding: "10px 0",
+                borderRadius: 8,
+                border: "none",
+                background: BLUE,
+                color: "#fff",
+                fontSize: 13.5,
+                fontWeight: 700,
+                cursor: drafting ? "default" : "pointer",
+                opacity: drafting ? 0.75 : 1
+              }}
+            >
+              {drafting ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+              {drafting ? `Drafting with ${provider === "gemini" ? "Gemini" : "Ollama"}...` : "Draft email with AI"}
+            </button>
+
+            {draftError && (
+              <div style={{ marginTop: 8, fontSize: 12, color: RED }}>{draftError}</div>
+            )}
+
+            {(draftSubject || draftBody) && (
+              <div style={{ marginTop: 16 }}>
+                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Subject</label>
+                <input
+                  type="text"
+                  value={draftSubject}
+                  onChange={(e) => setDraftSubject(e.target.value)}
+                  style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, marginBottom: 10 }}
+                />
+                <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Body</label>
+                <textarea
+                  value={draftBody}
+                  onChange={(e) => setDraftBody(e.target.value)}
+                  rows={10}
+                  style={{ width: "100%", boxSizing: "border-box", fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, padding: "9px 10px", color: TEXT, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
+                />
+
+                <button
+                  onClick={handleSend}
+                  disabled={sending}
+                  style={{
+                    width: "100%",
+                    marginTop: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    padding: "10px 0",
+                    borderRadius: 8,
+                    border: `1px solid ${GREEN}`,
+                    background: "#fff",
+                    color: GREEN,
+                    fontSize: 13.5,
+                    fontWeight: 700,
+                    cursor: sending ? "default" : "pointer",
+                    opacity: sending ? 0.75 : 1
+                  }}
+                >
+                  {sending ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+                  {sending ? "Sending..." : "Send email"}
+                </button>
+
+                {sendResult && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: sendResult.ok ? GREEN : RED }}>
+                    {sendResult.message}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
       <style>{`
         .spin { animation: spin 0.8s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

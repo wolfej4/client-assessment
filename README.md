@@ -1,9 +1,11 @@
 # SwyfTech Quote App
 
-The pricing worksheet, plus an optional first step that reads a completed
-Network & Security Assessment PDF and pre-fills the worksheet from it, and a
-section that drafts a client quote email — using either your self-hosted
-Ollama instance or Google Gemini — and sends it over SMTP.
+A full-screen app: the pricing worksheet, plus an optional first step that
+reads a completed Network & Security Assessment PDF and pre-fills the
+worksheet from it, a section that drafts a client quote email — using either
+your self-hosted Ollama instance or Google Gemini — and sends it over SMTP,
+and a history sidebar that automatically saves every assessment/quote so you
+can reopen and pick up where you left off.
 
 ## What's inside
 
@@ -24,6 +26,14 @@ Ollama instance or Google Gemini — and sends it over SMTP.
   - `POST /api/send-email` — sends that (editable) draft to the client over
     SMTP
   - `GET /api/health` — quick check that Ollama/Gemini/SMTP env vars are set
+  - `GET /api/history`, `GET /api/history/:id`, `POST /api/history`,
+    `DELETE /api/history/:id` — list/load/save/delete saved quotes (see
+    `server/history.js`). Worksheet state, the assessment summary, and the
+    quote draft are saved automatically as you work (no manual "save"
+    button) and shown in the app's sidebar, newest first
+- `server/history.js` — a tiny JSON-file-backed store for saved quotes
+  (`DATA_DIR/history.json`, `DATA_DIR` defaults to `./data`, i.e.
+  `/app/data` in the container — see `DATA_DIR_HOST` below for Docker)
 - `frontend/public/SwyfTech_Network_Security_Assessment.pdf` — the blank,
   fillable assessment template. Vite copies it into `dist/` at build time,
   so it's served at `/SwyfTech_Network_Security_Assessment.pdf` and linked
@@ -130,6 +140,7 @@ substitute into, which is a very easy mistake to reintroduce.)
 | `SMTP_USER` / `SMTP_PASS` | — | SMTP credentials |
 | `MAIL_FROM` | — | e.g. `SwyfTech LLC <quotes@yourdomain.com>` |
 | `MAIL_BCC` | — | Optional — bcc yourself on every quote sent |
+| `DATA_DIR_HOST` | `./data` | Docker-only, read by `docker-compose.yml` (not the app). Host-side folder that stores `history.json` — maps to `/app/data` in the container. Without this volume, saved history is wiped on every redeploy |
 
 **Networking note:** `localhost` inside the container refers to the container
 itself, not your Unraid host. If Ollama isn't on the same Docker network as
