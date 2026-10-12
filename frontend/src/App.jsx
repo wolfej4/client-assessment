@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Monitor, Server, Users, ShieldCheck, Moon, Plus, Minus, Mail, Sparkles, Send, Loader2, FileText, Paperclip } from "lucide-react";
+import { Monitor, Server, Users, ShieldCheck, Moon, Plus, Minus, Mail, Sparkles, Send, Loader2, FileText, Paperclip, Download } from "lucide-react";
 
 const NAVY = "#0f2438";
 const BLUE = "#1f6fa8";
@@ -313,6 +313,23 @@ export default function App() {
           Optional. Attach a filled-out Network &amp; Security Assessment PDF to
           auto-fill the worksheet below and get an AI risk summary.
         </div>
+
+        <a
+          href="/SwyfTech_Network_Security_Assessment.pdf"
+          download
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: BLUE,
+            textDecoration: "none",
+            marginBottom: 14
+          }}
+        >
+          <Download size={13} />
+          Don't have one yet? Download the blank assessment PDF
+        </a>
 
         <label
           htmlFor="assessment-file"
