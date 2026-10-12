@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PDFDocument, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFTextField } from "pdf-lib";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
+import { listHistory, getHistoryRecord, saveHistoryRecord, deleteHistoryRecord } from "./history.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "dist");
@@ -310,6 +311,69 @@ app.post("/api/send-email", async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: `Failed to send email. ${err.message || ""}`.trim() });
+  }
+});
+
+const HISTORY_FIELDS = [
+  "businessName",
+  "contactName",
+  "contactEmail",
+  "context",
+  "workstations",
+  "servers",
+  "seats",
+  "wsRate",
+  "srvRate",
+  "seatRate",
+  "compliance",
+  "afterHours",
+  "monthly",
+  "annual",
+  "assessmentSummary",
+  "assessmentFields",
+  "provider",
+  "assessmentProvider",
+  "draftSubject",
+  "draftBody",
+  "sent",
+  "sentAt"
+];
+
+app.get("/api/history", (_req, res) => {
+  res.json({ records: listHistory() });
+});
+
+app.get("/api/history/:id", (req, res) => {
+  const record = getHistoryRecord(req.params.id);
+  if (!record) return res.status(404).json({ error: "No saved record with that id." });
+  res.json({ record });
+});
+
+app.post("/api/history", (req, res) => {
+  const { id, ...body } = req.body || {};
+  if (!body.businessName || !String(body.businessName).trim()) {
+    return res.status(400).json({ error: "Missing business name." });
+  }
+
+  const fields = {};
+  for (const key of HISTORY_FIELDS) {
+    if (body[key] !== undefined) fields[key] = body[key];
+  }
+
+  try {
+    const record = saveHistoryRecord(id, fields);
+    res.json({ record });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || "Failed to save." });
+  }
+});
+
+app.delete("/api/history/:id", (req, res) => {
+  try {
+    deleteHistoryRecord(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || "Failed to delete." });
   }
 });
 
