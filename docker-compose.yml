@@ -1,7 +1,18 @@
+# IMPORTANT: this stack must be deployed from a build context that includes
+# this repo (the Dockerfile, server/, frontend/, etc.) — e.g. Portainer's
+# "Stacks -> Add stack -> Repository" option pointed at this repo/branch,
+# or `docker compose up` run from a local clone. Pasting just this file into
+# Portainer's "Web editor" has no build context, so Docker can't build the
+# image and will instead try to PULL "swyftech-quote-app:latest" from a
+# registry — which fails, since this image is never published anywhere
+# ("pull access denied ... repository does not exist"). `pull_policy: build`
+# below makes that failure mode clearer (a build error instead of a pull/auth
+# error) if it happens, but it does not create a build context.
 services:
   swyftech-quote-app:
     build: .
     image: swyftech-quote-app:latest
+    pull_policy: build
     container_name: swyftech-quote-app
     restart: unless-stopped
     ports:
