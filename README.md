@@ -24,6 +24,13 @@ Ollama instance or Google Gemini — and sends it over SMTP.
   - `POST /api/send-email` — sends that (editable) draft to the client over
     SMTP
   - `GET /api/health` — quick check that Ollama/Gemini/SMTP env vars are set
+- `frontend/public/SwyfTech_Network_Security_Assessment.pdf` — the blank,
+  fillable assessment template. Vite copies it into `dist/` at build time,
+  so it's served at `/SwyfTech_Network_Security_Assessment.pdf` and linked
+  from the "Start from a completed assessment" section in the app. Its
+  AcroForm field names are exactly what `extractAssessmentData` in
+  `server/index.js` looks for — if you edit the template, keep the field
+  names in sync (or update `WORKSHEET_FIELD_MAP` to match).
 - `Dockerfile` — multi-stage build (Vite build → slim Node runtime)
 - `docker-compose.yml` — ready to paste into a Portainer stack
 
@@ -32,6 +39,10 @@ text box first — you review or tweak it, then hit "Send email" yourself.
 
 ## Typical flow
 
+0. **Don't have a completed assessment yet?** Download the blank, fillable
+   PDF from the link in the "Start from a completed assessment" section
+   (or directly at `/SwyfTech_Network_Security_Assessment.pdf`), fill it
+   out with the client, then come back and upload it.
 1. **Attach the completed assessment PDF** (optional) and click "Analyze
    assessment." If it's the SwyfTech template, business info, device
    counts, and compliance status are pulled straight into the worksheet
