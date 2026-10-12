@@ -61,9 +61,12 @@ services:
       SMTP_SECURE: "${SMTP_SECURE:-false}"
       SMTP_USER: "${SMTP_USER:-}"
       SMTP_PASS: "${SMTP_PASS:-}"
-      MAIL_FROM: "${MAIL_FROM:-SwyfTech LLC <quotes@swyftech.example>}"
+      MAIL_FROM: "${MAIL_FROM:-SwyfTech LLC <jacob@swyftech.org>}"
       # Optional: send yourself a copy of every quote email sent.
       MAIL_BCC: "${MAIL_BCC:-}"
+      # Full name the AI signs quote emails with, and shown in the branded
+      # HTML email's footer.
+      SENDER_NAME: "${SENDER_NAME:-Jacob Wolfe}"
     # If Ollama runs in another Docker Compose project/network on the same
     # host, either put both on a shared external network, or just use the
     # host's LAN IP in OLLAMA_BASE_URL above instead of a service name.

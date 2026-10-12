@@ -24,7 +24,8 @@ can reopen and pick up where you left off.
     provider (`provider: "ollama" | "gemini"` in the request body) and gets
     back a drafted subject + body
   - `POST /api/send-email` — sends that (editable) draft to the client over
-    SMTP
+    SMTP, wrapped in the SwyfTech-branded HTML template from
+    `server/email.js` (plus a plain-text fallback)
   - `GET /api/health` — quick check that Ollama/Gemini/SMTP env vars are set
   - `GET /api/history`, `GET /api/history/:id`, `POST /api/history`,
     `DELETE /api/history/:id` — list/load/save/delete saved quotes (see
@@ -34,6 +35,7 @@ can reopen and pick up where you left off.
 - `server/history.js` — a tiny JSON-file-backed store for saved quotes
   (`DATA_DIR/history.json`, `DATA_DIR` defaults to `./data`, i.e.
   `/app/data` in the container — see `DATA_DIR_HOST` below for Docker)
+- `server/email.js` — builds the branded HTML version of the quote email
 - `frontend/public/SwyfTech_Network_Security_Assessment.pdf` — the blank,
   fillable assessment template. Vite copies it into `dist/` at build time,
   so it's served at `/SwyfTech_Network_Security_Assessment.pdf` and linked
@@ -138,8 +140,9 @@ substitute into, which is a very easy mistake to reintroduce.)
 | `SMTP_PORT` | `587` | |
 | `SMTP_SECURE` | `false` | `true` for port 465 (implicit TLS) |
 | `SMTP_USER` / `SMTP_PASS` | — | SMTP credentials |
-| `MAIL_FROM` | — | e.g. `SwyfTech LLC <quotes@yourdomain.com>` |
+| `MAIL_FROM` | `SwyfTech LLC <jacob@swyftech.org>` | The quote email's "From" header |
 | `MAIL_BCC` | — | Optional — bcc yourself on every quote sent |
+| `SENDER_NAME` | `Jacob Wolfe` | Full name the AI signs quote emails with, and shown in the branded HTML email's footer |
 | `DATA_DIR_HOST` | `./data` | Docker-only, read by `docker-compose.yml` (not the app). Host-side folder that stores `history.json` — maps to `/app/data` in the container. Without this volume, saved history is wiped on every redeploy |
 
 **Networking note:** `localhost` inside the container refers to the container
@@ -167,16 +170,22 @@ docker run -p 8787:8787 \
   -e SMTP_HOST=smtp.example.com \
   -e SMTP_USER=quotes@swyftech.example \
   -e SMTP_PASS=changeme \
-  -e MAIL_FROM="SwyfTech LLC <quotes@swyftech.example>" \
+  -e MAIL_FROM="SwyfTech LLC <jacob@swyftech.org>" \
+  -e SENDER_NAME="Jacob Wolfe" \
   swyftech-quote-app
 ```
 
 ## Notes
 
 - The prompt (same for both providers) explicitly tells the model not to
-  invent pricing or services beyond what's in the worksheet — but always
-  read the draft before sending, same as you would with anything AI-drafted
-  going to a client.
+  invent pricing or services beyond what's in the worksheet, and to sign
+  off with `SENDER_NAME` and "SwyfTech LLC" only — but always read the
+  draft before sending, same as you would with anything AI-drafted going
+  to a client.
+- The Body field in the app stays plain text for easy editing. When you hit
+  "Send email," `server/email.js` wraps it in the SwyfTech-branded HTML
+  template (navy header/footer, blue wordmark — same colors as the app and
+  the assessment PDF) and sends both the HTML and a plain-text fallback.
 - Gemini calls go out over the internet to Google's API; Ollama stays fully
   self-hosted. Pick whichever fits your client's data-handling comfort level
   — this applies to the assessment summary too, since the extracted PDF

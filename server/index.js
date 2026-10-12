@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { PDFDocument, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFTextField } from "pdf-lib";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { listHistory, getHistoryRecord, saveHistoryRecord, deleteHistoryRecord } from "./history.js";
+import { buildEmailHtml } from "./email.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "dist");
@@ -22,8 +23,10 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_SECURE = String(process.env.SMTP_SECURE || "false") === "true";
 const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
-const MAIL_FROM = process.env.MAIL_FROM || "SwyfTech LLC <quotes@swyftech.example>";
+const MAIL_FROM = process.env.MAIL_FROM || "SwyfTech LLC <jacob@swyftech.org>";
 const MAIL_BCC = process.env.MAIL_BCC || "";
+
+const SENDER_NAME = process.env.SENDER_NAME || "Jacob Wolfe";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -41,7 +44,7 @@ function buildPrompt({ businessName, contactName, contactEmail, context, lines, 
     .map((l) => `- ${l.label}: $${l.amount}/mo`)
     .join("\n");
 
-  const system = `You are a plain-spoken, professional MSP (managed service provider) owner writing a short quote email to a prospective or existing small business client. Tone: confident, warm, no corporate filler, no exclamation points, no "please" as a favor-ask, no emoji. Keep it concise: 120-180 words in the body. Do not invent pricing or services beyond what is given. Do not invent a signature block beyond "Jacob" and "SwyfTech LLC" unless told otherwise. Output must follow this exact format with no extra commentary before or after:
+  const system = `You are a plain-spoken, professional MSP (managed service provider) owner writing a short quote email to a prospective or existing small business client. Tone: confident, warm, no corporate filler, no exclamation points, no "please" as a favor-ask, no emoji. Keep it concise: 120-180 words in the body. Do not invent pricing or services beyond what is given. End the email with a sign-off on its own line(s): the first name alone (e.g. "Jacob") in the closing line, then a signature block of exactly "${SENDER_NAME}" on one line and "SwyfTech LLC" on the next — do not invent any other name, title, or contact info. Output must follow this exact format with no extra commentary before or after:
 SUBJECT: <one line subject>
 BODY:
 <email body text, plain text, no markdown>`;
@@ -305,7 +308,8 @@ app.post("/api/send-email", async (req, res) => {
       to,
       bcc: MAIL_BCC || undefined,
       subject,
-      text: body
+      text: body,
+      html: buildEmailHtml({ subject, body, senderName: SENDER_NAME, mailFrom: MAIL_FROM })
     });
 
     res.json({ ok: true });
@@ -384,7 +388,8 @@ app.get("/api/health", (_req, res) => {
     model: OLLAMA_MODEL,
     geminiConfigured: Boolean(GEMINI_API_KEY),
     geminiModel: GEMINI_MODEL,
-    smtpConfigured: Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS)
+    smtpConfigured: Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS),
+    senderName: SENDER_NAME
   });
 });
 
